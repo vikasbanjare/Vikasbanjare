@@ -544,6 +544,64 @@
     );
   }
 
+  /* ---------------- flying tool icons in 3D space ---------------- */
+  const flyScene = $("#fly-scene");
+  if (flyScene && !reducedMotion) {
+    // your editing stack, floating in zero gravity
+    const TOOLS = [
+      { l: "Pr", fg: "#9999ff", bg: "#00005b", x: 74, y: 12, z: 160, s: 104 },
+      { l: "Ae", fg: "#9999ff", bg: "#00005b", x: 60, y: 60, z: -110, s: 72 },
+      { l: "Ps", fg: "#31a8ff", bg: "#001e36", x: 86, y: 40, z: 60, s: 92 },
+      { l: "Ai", fg: "#ff9a00", bg: "#330000", x: 5,  y: 48, z: 190, s: 96 },
+      { l: "Lr", fg: "#31a8ff", bg: "#001e36", x: 28, y: 8,  z: -160, s: 60 },
+      { l: "Id", fg: "#ff3366", bg: "#49021f", x: 44, y: 18, z: 90, s: 70 },
+      { l: "Fg", fg: "#0acf83", bg: "#1e1e1e", x: 14, y: 24, z: -60, s: 64 },
+    ];
+    const icons = TOOLS.map((t, i) => {
+      const el = document.createElement("div");
+      el.className = "fly-icon";
+      el.textContent = t.l;
+      el.style.cssText =
+        `left:${t.x}%;top:${t.y}%;width:${t.s}px;height:${t.s}px;` +
+        `background:${t.bg};color:${t.fg};font-size:${Math.round(t.s * 0.38)}px;`;
+      el.addEventListener("click", () => {
+        el.classList.remove("kick");
+        void el.offsetWidth;
+        el.classList.add("kick");
+        addToolToast(t.l);
+      });
+      flyScene.appendChild(el);
+      return { el, t, phase: i * 1.7, spin: (i % 2 ? 1 : -1) * (8 + i * 3) };
+    });
+
+    const toolNames = { Pr: "PREMIERE PRO", Ae: "AFTER EFFECTS", Ps: "PHOTOSHOP", Ai: "ILLUSTRATOR", Lr: "LIGHTROOM", Id: "INDESIGN", Fg: "FIGMA" };
+    function addToolToast(l) { showToast("🛠 " + (toolNames[l] || l) + " — 7 YEARS IN"); }
+
+    let fmx = 0.5, fmy = 0.5;
+    if (fine) {
+      window.addEventListener("mousemove", (e) => {
+        fmx = e.clientX / window.innerWidth;
+        fmy = e.clientY / window.innerHeight;
+      }, { passive: true });
+    }
+    (function flyLoop(now) {
+      const t = now / 1000;
+      // whole 3D scene tilts toward the cursor
+      flyScene.style.transform = `rotateX(${((fmy - 0.5) * -16).toFixed(2)}deg) rotateY(${((fmx - 0.5) * 22).toFixed(2)}deg)`;
+      icons.forEach((ic) => {
+        const { el, t: cfg, phase, spin } = ic;
+        const fx = Math.sin(t * 0.42 + phase) * 110;
+        const fy = Math.cos(t * 0.31 + phase * 1.3) * 64;
+        const rz = Math.sin(t * 0.3 + phase) * 12;
+        const ry = Math.sin(t * 0.45 + phase) * (14 + Math.abs(spin));
+        el.style.transform =
+          `translate3d(${fx.toFixed(1)}px, ${fy.toFixed(1)}px, ${cfg.z}px)` +
+          ` rotateY(${ry.toFixed(1)}deg) rotateZ(${rz.toFixed(1)}deg)`;
+      });
+      requestAnimationFrame(flyLoop);
+    })(0);
+  }
+
   /* ---------------- aurora follow + doodle parallax ---------------- */
   const auroraBlob = $("#aurora i");
   const depthEls = $$(".doodle[data-depth], .hero-face");

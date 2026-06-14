@@ -39,7 +39,6 @@
   $("#hero-last").textContent = lastName.charAt(0).toUpperCase() + lastName.slice(1).toLowerCase();
   $("#chip-tagline").textContent = (P.tagline || "Visual Designer").toUpperCase();
   $("#chip-location").textContent = (P.location || "Earth").toUpperCase();
-  $("#chip-year").textContent = new Date().getFullYear();
 
   // personalized greeting — share links like  yoursite.com/?for=Nike
   const params = new URLSearchParams(location.search);
@@ -132,13 +131,6 @@
       const c = $(".hcard-cover", card);
       c.style.backgroundImage = `url('${url}')`;
       c.classList.add("has-img");
-      // first two loaded covers float behind the hero title
-      if (loadedCovers.length <= 2) {
-        const peek = document.createElement("div");
-        peek.className = "hero-peek p" + loadedCovers.length;
-        peek.style.backgroundImage = `url('${url}')`;
-        $("#hero").appendChild(peek);
-      }
     });
   });
   const endCard = document.createElement("a");
@@ -231,62 +223,52 @@
     }
   }
 
-  /* ---------------- showreel (video stage) ---------------- */
+  /* ---------------- showreel — floating landscape panels ---------------- */
   const reelItems = DATA.showreel || [];
-  const reelList = $("#reel-list");
-  const reelStage = $("#reel-stage");
-  if (reelItems.length && reelStage) {
-    let current = 0, playing = false;
+  const reelFlow = $("#reel-flow");
+  if (reelItems.length && reelFlow) {
+    reelItems.forEach((item, i) => {
+      const panel = document.createElement("div");
+      panel.className = "reel-panel";
+      panel.innerHTML =
+        `<div class="rp-media ph-${i % 6}" data-cursor="play">` +
+        `<div class="rp-img"></div>` +
+        `<span class="rp-num">${String(i + 1).padStart(2, "0")}</span>` +
+        `<span class="rp-play" aria-hidden="true">▶</span>` +
+        `<div class="rp-bar"><span class="rp-title">${item.title}</span><span class="rp-label">${item.label || ""} · CLICK TO PLAY</span></div>` +
+        `</div>`;
+      reelFlow.appendChild(panel);
+      // images preloaded immediately — no clicks needed to see the work
+      loadImg(item.cover, (url) => { $(".rp-img", panel).style.backgroundImage = `url('${url}')`; });
+      $(".rp-media", panel).addEventListener("click", () => {
+        const src = item.youtubeId
+          ? `https://www.youtube.com/embed/${item.youtubeId}?autoplay=1&rel=0`
+          : `https://www.behance.net/embed/project/${item.behanceProjectId}?ilo0=1`;
+        panel.innerHTML = `<div class="rp-frame"><iframe src="${src}" title="${item.title}" allowfullscreen allow="autoplay; clipboard-write; fullscreen; picture-in-picture" referrerpolicy="strict-origin-when-cross-origin"></iframe></div>`;
+      });
+    });
 
-    function reelEmbed(item) {
-      if (item.youtubeId) {
-        return `<div class="reel-frame yt"><iframe src="https://www.youtube.com/embed/${item.youtubeId}?autoplay=1&rel=0" title="${item.title}" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen loading="lazy"></iframe></div>`;
-      }
-      return `<div class="reel-frame be"><iframe src="https://www.behance.net/embed/project/${item.behanceProjectId}?ilo0=1" title="${item.title}" allowfullscreen allow="clipboard-write" referrerpolicy="strict-origin-when-cross-origin" loading="lazy"></iframe></div>`;
-    }
-    function renderPoster() {
-      const item = reelItems[current];
-      reelStage.innerHTML =
-        `<div class="reel-poster" data-cursor="play">` +
-        `<span class="poster-bg"></span>` +
-        `<span class="reel-play" aria-hidden="true">▶</span>` +
-        `<span class="reel-poster-title">${item.title}</span>` +
-        `<span class="reel-poster-hint">CLICK TO PLAY</span>` +
-        `<span class="reel-scanlines" aria-hidden="true"></span></div>`;
-      loadImg(item.cover, (url) => {
-        const bg = $(".poster-bg", reelStage);
-        if (bg) bg.style.backgroundImage = `url('${url}')`;
+    // panels float in from alternating sides as you scroll
+    if (hasST && !reducedMotion) {
+      $$(".reel-panel", reelFlow).forEach((panel, i) => {
+        gsap.from(panel, {
+          x: i % 2 ? 180 : -180,
+          y: 80,
+          rotate: i % 2 ? 4 : -4,
+          opacity: 0,
+          duration: 1.1,
+          ease: "power3.out",
+          scrollTrigger: { trigger: panel, start: "top 90%" },
+        });
+        const img = $(".rp-img", panel);
+        if (img) {
+          gsap.fromTo(img, { yPercent: -9 }, {
+            yPercent: 9, ease: "none",
+            scrollTrigger: { trigger: panel, start: "top bottom", end: "bottom top", scrub: true },
+          });
+        }
       });
     }
-    function play() {
-      playing = true;
-      reelStage.innerHTML = reelEmbed(reelItems[current]);
-      reelList.classList.add("playing");
-    }
-    function select(i) {
-      current = i;
-      $("#reel-now-title").textContent = reelItems[i].title.toUpperCase();
-      $$(".reel-item", reelList).forEach((el, j) => el.classList.toggle("active", j === i));
-      if (playing) play();
-      else renderPoster();
-    }
-
-    reelItems.forEach((item, i) => {
-      const b = document.createElement("button");
-      b.className = "reel-item";
-      b.dataset.cursor = "play";
-      b.innerHTML =
-        `<span class="ri-num">${String(i + 1).padStart(2, "0")}</span>` +
-        `<span class="ri-title">${item.title}</span>` +
-        `<span class="ri-label">${item.label || ""}</span>` +
-        `<span class="ri-eq" aria-hidden="true"><i></i><i></i><i></i></span>`;
-      b.addEventListener("click", () => { select(i); if (!playing) play(); });
-      reelList.appendChild(b);
-    });
-    reelStage.addEventListener("click", (e) => {
-      if (e.target.closest(".reel-poster")) play();
-    });
-    select(0);
   }
 
   /* ---------------- render: about ---------------- */
@@ -921,7 +903,8 @@
 
   /* ---------------- click confetti ---------------- */
   if (!reducedMotion) {
-    const palette = () => [getComputedStyle(document.documentElement).getPropertyValue("--lime").trim(), "#ff4524", "#2c39e8", "#f2ede4"];
+    const cssVar = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+    const palette = () => [cssVar("--lime"), cssVar("--red"), cssVar("--blue"), "#f2ede4"];
     document.addEventListener("click", (e) => {
       const colors = palette();
       for (let i = 0; i < 6; i++) {
@@ -944,22 +927,37 @@
     });
   }
 
-  /* ---------------- accent theme switcher ---------------- */
+  /* ---------------- global colour-theme switcher ----------------
+     Each theme recolours the WHOLE palette — the accent plus every
+     section block (work / career / services) — so one tap visibly
+     transforms the entire site, not just small highlights.
+     Readability contract: --lime & --yellow stay bright (ink text
+     sits on them), --blue & --red stay deep (paper text sits on them).
+  -------------------------------------------------------------------- */
   const THEMES = [
-    { name: "LIME", color: "#d9ff3d" },
-    { name: "CYAN", color: "#5fe8ff" },
-    { name: "PINK", color: "#ff9dd6" },
-    { name: "TANGERINE", color: "#ffb13d" },
+    { name: "ELECTRIC", lime: "#d9ff3d", blue: "#2c39e8", red: "#ff4524", yellow: "#ffce32" },
+    { name: "CANDY",    lime: "#ff8fcf", blue: "#6b3df5", red: "#d6248c", yellow: "#ffd23f" },
+    { name: "OCEAN",    lime: "#3fe7c4", blue: "#1538a8", red: "#0f7d8c", yellow: "#ffe06a" },
+    { name: "EMBER",    lime: "#ffae3a", blue: "#3b2f8f", red: "#c2381f", yellow: "#ffd98a" },
   ];
+  const themeDot = $(".theme-dot");
+  const themeName = $("#theme-name");
   let themeIdx = Math.max(0, THEMES.findIndex((t) => t.name === localStorage.getItem("vb-theme")));
   function applyTheme(announce) {
     const t = THEMES[themeIdx];
-    document.documentElement.style.setProperty("--lime", t.color);
+    const root = document.documentElement.style;
+    root.setProperty("--lime", t.lime);
+    root.setProperty("--blue", t.blue);
+    root.setProperty("--red", t.red);
+    root.setProperty("--yellow", t.yellow);
+    if (themeDot) themeDot.style.background = t.lime;
+    if (themeName) themeName.textContent = t.name;
     localStorage.setItem("vb-theme", t.name);
-    if (announce) showToast("🎨 ACCENT: " + t.name);
+    if (announce) showToast("🎨 THEME — " + t.name);
   }
   applyTheme(false);
-  $("#theme-btn").addEventListener("click", () => {
+  const themeBtn = $("#theme-btn");
+  if (themeBtn) themeBtn.addEventListener("click", () => {
     themeIdx = (themeIdx + 1) % THEMES.length;
     applyTheme(true);
   });

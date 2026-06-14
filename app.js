@@ -540,25 +540,95 @@
     });
   }
 
-  /* ---------------- pinned horizontal work gallery ---------------- */
+  /* ---------------- Selected Work: drag-scroll carousel ---------------- */
   const wrap = $("#htrack-wrap");
-  if (hasST && fine && !reducedMotion && window.innerWidth > 900) {
-    const amount = () => Math.max(0, htrack.scrollWidth - window.innerWidth + 80);
-    gsap.to(htrack, {
-      x: () => -amount(),
-      ease: "none",
-      scrollTrigger: {
-        trigger: "#work",
-        start: "top top",
-        end: () => "+=" + amount(),
-        scrub: 1,
-        pin: true,
-        anticipatePin: 1,
-        invalidateOnRefresh: true,
-      },
+  if (wrap) {
+    wrap.classList.add("drag"); // always horizontal-scroll; no fragile pinning
+    // wheel → horizontal
+    wrap.addEventListener("wheel", (e) => {
+      if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+        wrap.scrollLeft += e.deltaY;
+        if (wrap.scrollWidth - wrap.clientWidth - wrap.scrollLeft > 1 && wrap.scrollLeft > 1) e.preventDefault();
+      }
+    }, { passive: false });
+    // grab & drag with momentum
+    let down = false, startX = 0, startScroll = 0, vx = 0, lastX = 0, moved = false, mo = null;
+    wrap.addEventListener("pointerdown", (e) => {
+      down = true; moved = false; startX = lastX = e.clientX; startScroll = wrap.scrollLeft; vx = 0;
+      cancelAnimationFrame(mo); wrap.classList.add("grabbing"); wrap.setPointerCapture(e.pointerId);
     });
-  } else {
-    wrap.classList.add("native");
+    wrap.addEventListener("pointermove", (e) => {
+      if (!down) return;
+      const dx = e.clientX - lastX; lastX = e.clientX; vx = dx;
+      if (Math.abs(e.clientX - startX) > 6) moved = true;
+      wrap.scrollLeft = startScroll - (e.clientX - startX);
+    });
+    function release() {
+      if (!down) return;
+      down = false; wrap.classList.remove("grabbing");
+      (function glide() { // momentum
+        if (Math.abs(vx) < 0.5) return;
+        wrap.scrollLeft -= vx; vx *= 0.92; mo = requestAnimationFrame(glide);
+      })();
+    }
+    wrap.addEventListener("pointerup", release);
+    wrap.addEventListener("pointercancel", release);
+    // suppress click-through right after a drag
+    htrack.addEventListener("click", (e) => { if (moved) { e.stopPropagation(); e.preventDefault(); } }, true);
+  }
+
+  /* ---------------- water ripple + liquid warp over the work images ---------------- */
+  const workSection = $("#work");
+  if (workSection && !reducedMotion) {
+    let lastRx = -999, lastRy = -999;
+    function ripple(x, y, big) {
+      const r = document.createElement("span");
+      r.className = "ripple" + (big ? " ripple-big" : "");
+      r.style.left = x + "px";
+      r.style.top = y + "px";
+      workSection.appendChild(r);
+      setTimeout(() => r.remove(), big ? 1100 : 820);
+    }
+    workSection.addEventListener("pointermove", (e) => {
+      const card = e.target.closest(".hcard-cover");
+      if (!card) return;
+      if (Math.hypot(e.clientX - lastRx, e.clientY - lastRy) < 60) return;
+      lastRx = e.clientX; lastRy = e.clientY;
+      const wr = workSection.getBoundingClientRect();
+      ripple(e.clientX - wr.left, e.clientY - wr.top, false);
+    }, { passive: true });
+    workSection.addEventListener("pointerdown", (e) => {
+      const card = e.target.closest(".hcard-cover");
+      if (!card) return;
+      const wr = workSection.getBoundingClientRect();
+      ripple(e.clientX - wr.left, e.clientY - wr.top, true);
+    });
+
+    // real liquid displacement on the hovered cover (one filtered image at a time)
+    const disp = $("#liquid-disp");
+    if (disp && fine) {
+      let scale = 0, target = 0, rafD = null, active = null;
+      function ramp() {
+        rafD = null;
+        scale += (target - scale) * 0.14;
+        disp.setAttribute("scale", scale.toFixed(2));
+        if (Math.abs(target - scale) > 0.3) rafD = requestAnimationFrame(ramp);
+        else { scale = target; disp.setAttribute("scale", scale); if (target === 0 && active) { active.classList.remove("liquid"); active = null; } }
+      }
+      workSection.addEventListener("pointerover", (e) => {
+        const cover = e.target.closest(".hcard-cover");
+        if (!cover || cover === active) return;
+        if (active) active.classList.remove("liquid");
+        active = cover; cover.classList.add("liquid");
+        target = 26; if (!rafD) rafD = requestAnimationFrame(ramp);
+      });
+      workSection.addEventListener("pointerout", (e) => {
+        const cover = e.target.closest(".hcard-cover");
+        if (cover && cover === active && !cover.contains(e.relatedTarget)) {
+          target = 0; if (!rafD) rafD = requestAnimationFrame(ramp);
+        }
+      });
+    }
   }
 
   /* ---------------- scroll reveals + manifesto highlight ---------------- */
@@ -835,90 +905,82 @@
     io.observe($(".about-stats"));
   }
 
-  /* ---------------- career shorts (resume as phone stories) ---------------- */
+  /* ---------------- experience: 3D monolith scroll-reveal ---------------- */
   const shorts = DATA.shorts || [];
-  const phone = $("#phone");
-  if (shorts.length && phone) {
-    const DUR = 5000;
-    const bars = $("#story-bars");
-    const view = $("#short-view");
-    const reactions = $("#reactions");
-    const shAva = $("#sh-ava");
-    const shTime = $("#sh-time");
-    if (shAva) loadImg(P.photo, (url) => { shAva.style.backgroundImage = `url('${url}')`; shAva.classList.add("has-img"); });
-    bars.innerHTML = shorts.map(() => "<i></i>").join("");
-    const barEls = $$("i", bars);
-    let cur = -1, timer = null;
+  const mono = $("#mono");
+  const monoScroll = $("#mono-scroll");
+  if (shorts.length && mono && monoScroll) {
+    const bgCovers = ["cover-website", "cover-wealthy", "cover-thumbnails", "cover-creative"];
+    const N = shorts.length;            // faces around the prism
+    const STEP = 360 / N;               // degrees per face
+    const monoInfo = $("#mono-info");
+    const monoRail = $("#mono-rail");
 
-    const EMOJIS = ["❤️", "🔥", "👏", "✨", "💯", "🎉"];
-    function react(burst) {
-      if (reducedMotion) return;
-      const pr = phone.getBoundingClientRect();
-      const wr = reactions.parentElement.getBoundingClientRect();
-      for (let i = 0; i < (burst ? 5 : 1); i++) {
-        const r = document.createElement("span");
-        r.className = "reaction";
-        r.textContent = EMOJIS[(Math.random() * EMOJIS.length) | 0];
-        r.style.left = pr.right - wr.left + 6 + Math.random() * 20 + "px";
-        r.style.top = pr.bottom - wr.top - 80 + "px";
-        reactions.appendChild(r);
-        r.animate(
-          [
-            { transform: "translateY(0) scale(.6) rotate(0deg)", opacity: 0 },
-            { transform: `translateY(-${90 + Math.random() * 110}px) translateX(${(Math.random() - 0.3) * 60}px) scale(1.15) rotate(${(Math.random() - 0.5) * 40}deg)`, opacity: 1, offset: 0.55 },
-            { transform: `translateY(-${220 + Math.random() * 120}px) translateX(${(Math.random() - 0.3) * 90}px) scale(.8)`, opacity: 0 },
-          ],
-          { duration: 1500 + Math.random() * 700, easing: "ease-out", delay: i * 130 }
-        ).onfinish = () => r.remove();
-      }
+    // build the faces of the rotating slab
+    shorts.forEach((s, i) => {
+      const face = document.createElement("div");
+      face.className = "mono-face";
+      face.style.transform = `rotateY(${i * STEP}deg) translateZ(var(--mono-depth))`;
+      face.innerHTML =
+        `<div class="mf-img"></div>` +
+        `<div class="mf-grad"></div>` +
+        `<span class="mf-num">${String(i + 1).padStart(2, "0")}</span>` +
+        `<span class="mf-co">${s.company}</span>` +
+        `<span class="mf-role">${s.role}</span>`;
+      mono.appendChild(face);
+      loadImg(bgCovers[i % bgCovers.length], (url) => { $(".mf-img", face).style.backgroundImage = `url('${url}')`; });
+    });
+
+    // progress rail
+    monoRail.innerHTML = shorts.map((s, i) => `<li><span>${String(i + 1).padStart(2, "0")}</span></li>`).join("");
+    const railItems = $$("li", monoRail);
+
+    // info panel (crossfades on chapter change)
+    let active = -1;
+    function setActive(i) {
+      if (i === active) return;
+      active = i;
+      const s = shorts[i];
+      monoInfo.innerHTML =
+        `<span class="mi-step">${String(i + 1).padStart(2, "0")} <i>/ ${String(N).padStart(2, "0")}</i></span>` +
+        `<span class="mi-emoji">${s.emoji}</span>` +
+        `<h3 class="mi-company">${s.company}</h3>` +
+        `<span class="mi-role">${s.role}</span>` +
+        `<span class="mi-period">${s.period}</span>` +
+        `<ul class="mi-points">${(s.points || []).map((pt) => `<li>${pt}</li>`).join("")}</ul>`;
+      railItems.forEach((el, k) => el.classList.toggle("active", k === i));
     }
+    setActive(0);
 
-    function showShort(i) {
-      cur = ((i % shorts.length) + shorts.length) % shorts.length;
-      const s = shorts[cur];
-      phone.dataset.mood = cur % 4;
-      if (shTime) shTime.textContent = (shorts.length - cur) + "d";
-      view.innerHTML =
-        `<div class="sv-emoji">${s.emoji}</div>` +
-        `<div class="sv-company">${s.company}</div>` +
-        `<span class="sv-role">${s.role}</span>` +
-        `<span class="sv-period">${s.period}</span>` +
-        `<ul class="sv-points">${(s.points || []).map((pt) => `<li>${pt}</li>`).join("")}</ul>`;
-      barEls.forEach((b, j) => {
-        b.classList.toggle("done", j < cur);
-        b.classList.remove("running");
+    // scroll drives the rotation (sticky pin — robust, no library needed)
+    const LERP = reducedMotion ? 1 : 0.1;
+    let ry = 0, targetRy = 0;
+    function compute() {
+      const total = monoScroll.offsetHeight - window.innerHeight;
+      const scrolled = Math.min(Math.max(-monoScroll.getBoundingClientRect().top, 0), Math.max(total, 1));
+      const progress = total > 0 ? scrolled / total : 0;
+      targetRy = progress * (N - 1) * STEP;            // 0 .. (N-1)*STEP
+      setActive(Math.min(N - 1, Math.round(progress * (N - 1))));
+    }
+    function render(t) {
+      ry += (targetRy - ry) * LERP;
+      const idle = reducedMotion ? 0 : Math.sin(t / 1400) * 4;
+      mono.style.transform = `rotateX(-6deg) rotateY(${-(ry + idle).toFixed(2)}deg)`;
+      requestAnimationFrame(render);
+    }
+    window.addEventListener("scroll", compute, { passive: true });
+    window.addEventListener("resize", compute);
+    compute();
+    render(0);
+
+    // click a rail dot to jump to that chapter
+    railItems.forEach((el, i) => {
+      el.addEventListener("click", () => {
+        const total = monoScroll.offsetHeight - window.innerHeight;
+        const y = monoScroll.offsetTop + (i / (N - 1)) * total;
+        (lenis ? lenis.scrollTo(y) : window.scrollTo({ top: y, behavior: "smooth" }));
       });
-      void barEls[cur].offsetWidth;
-      barEls[cur].style.setProperty("--dur", DUR + "ms");
-      if (!reducedMotion) barEls[cur].classList.add("running");
-      react(true);
-      clearTimeout(timer);
-      if (!reducedMotion) timer = setTimeout(() => showShort(cur + 1), DUR);
-    }
-
-    $("#tap-right").addEventListener("click", () => showShort(cur + 1));
-    $("#tap-left").addEventListener("click", () => showShort(cur - 1));
-
-    // start the stories when the phone scrolls into view
-    if ("IntersectionObserver" in window) {
-      const io = new IntersectionObserver((entries, obs) => {
-        if (entries.some((e) => e.isIntersecting)) {
-          obs.disconnect();
-          showShort(0);
-        }
-      }, { threshold: 0.4 });
-      io.observe(phone);
-    } else {
-      showShort(0);
-    }
-
-    // ambient reactions while the section is on screen
-    if (!reducedMotion) {
-      setInterval(() => {
-        const r = phone.getBoundingClientRect();
-        if (r.top < window.innerHeight && r.bottom > 0 && cur >= 0) react(false);
-      }, 1600);
-    }
+    });
   }
 
   /* ---------------- toolbox: proximity-glow tool cloud (fast) ---------------- */
